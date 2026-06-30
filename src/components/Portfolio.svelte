@@ -110,7 +110,7 @@
   function catLabel(key) { return (CATEGORIES.find((c) => c.key === key) || {}).label || key; }
 
   function openWizard() {
-    answers = { age: '', salary: state.salary, rent: 0, expenses: 0, initial: clean.reduce((s, p) => s + p.initial, 0), horizonYears: 0, risk: '', reaction: '', objective: '', categories: [...DEFAULT_CATS] };
+    answers = { age: '', salary: state.salary, rent: 0, expenses: 0, initial: clean.reduce((s, p) => s + p.initial, 0), horizonYears: Math.max(0, state.targetYear - CURRENT_YEAR), risk: '', reaction: '', objective: '', categories: [...DEFAULT_CATS] };
     wizStep = 0; proposal = null; wizError = ''; wizOpen = true;
   }
   function closeWizard() { wizOpen = false; }
@@ -172,7 +172,7 @@
     try {
       const res = await fetch('/api/generate-portfolio', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: state.settings.apiKey, answers: { ...answers, surplus, targetYear } }),
+        body: JSON.stringify({ apiKey: state.settings.apiKey, answers: { ...answers, surplus, targetYear, goal: state.goal || 0, passiveTarget: state.passiveTarget || 0 } }),
       });
       const data = await res.json();
       if (data.strategies && data.strategies.length) {

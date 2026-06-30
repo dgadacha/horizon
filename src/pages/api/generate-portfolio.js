@@ -47,6 +47,8 @@ Chaque stratégie :
 - confidence : adéquation au profil de l'utilisateur, entier 60-98.
 - summary : <= 45 mots, à la 2e personne (« tu »), ton de conseiller : justifie le choix en t'appuyant sur le profil (âge, horizon, objectif, tolérance) ET la logique d'allocation. Le rappel « performances passées ≠ futures, pas un conseil perso » apparaît UNE seule fois, dans la stratégie équilibrée.
 
+Si un objectif chiffré (revenu passif / capital cible) est fourni, ajuste la cohérence : un objectif ambitieux au regard de l'horizon et du surplus justifie une stratégie plus offensive (croissance) avec une meilleure confidence sur celle-ci. Dans le summary de la stratégie équilibrée, signale honnêtement si l'objectif paraît hors de portée au rythme proposé (il faudra épargner davantage ou allonger l'horizon) — sans jamais dépasser le surplus.
+
 recommendedMonthly est commun aux trois stratégies (basé sur le surplus, marge de sécurité).
 N'utilise QUE les placements du catalogue ci-dessous (l'utilisateur a choisi ces catégories).
 
@@ -65,7 +67,13 @@ function buildPrompt(a) {
 - Horizon : ${a.horizonYears} ans (année cible ${a.targetYear})
 - Profil de risque déclaré : ${a.risk}
 - Réaction à une baisse de -30 % : ${a.reaction}
-- Objectif principal : ${a.objective}
+- Objectif principal : ${a.objective}${
+    +a.passiveTarget > 0
+      ? `\n- Objectif chiffré : toucher ${a.passiveTarget} XPF/mois de revenu passif, soit un capital cible d'environ ${a.goal} XPF (règle des 4 %)`
+      : +a.goal > 0
+        ? `\n- Objectif chiffré : atteindre un capital d'environ ${a.goal} XPF`
+        : ''
+  }
 
 Propose l'épargne mensuelle conseillée (<= ${surplus}) et la répartition la plus adaptée.`;
 }

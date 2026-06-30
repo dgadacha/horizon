@@ -32,6 +32,7 @@ export function defaultState() {
     taxRate: 0,
     stepUp: 0,
     goal: 0,
+    passiveTarget: 0,
     showReal: false,
     mcMode: false,
     tracking: [],

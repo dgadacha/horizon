@@ -7,14 +7,26 @@
   const fmtNum = (v) => grouped.format(Math.round(v || 0));
   const msLabel = (v) => (v >= 1e9 ? v / 1e9 + ' Md' : v / 1e6 + ' M');
 
+  const SWR = 0.04; // taux de retrait sûr annuel (règle des 4 %)
+
   let state = null;
   let ready = false;
 
   onMount(() => {
     state = loadState();
+    // Compat : si un objectif capital existe sans revenu passif défini, on le déduit.
+    if (!state.passiveTarget && state.goal > 0) state.passiveTarget = Math.round((state.goal * SWR) / 12);
     ready = true;
   });
+  // L'objectif capital est piloté par le revenu passif visé (capital = revenu × 12 / 4 %).
+  $: if (ready) state.goal = Math.round(((+state.passiveTarget || 0) * 12) / SWR);
   $: if (ready && state) saveState(state);
+
+  $: horizonYears = ready ? Math.max(1, state.targetYear - CURRENT_YEAR) : 1;
+  function setHorizon(v) {
+    const y = Math.max(1, Math.min(60, Math.round(+v || 0)));
+    state.targetYear = CURRENT_YEAR + y;
+  }
 
   $: years = ready ? state.targetYear - CURRENT_YEAR : 0;
   $: clean = ready
@@ -33,8 +45,18 @@
   $: prob = mc ? probReachGoal(mc.finals, state.goal) : null;
   $: milestones = ready ? milestoneLadder(Math.max(projected, state.goal || 0)) : [];
   $: reste = ready && state.goal > 0 ? Math.max(0, state.goal - projected) : 0;
-  $: passiveMonthly = projected * 0.04 / 12; // règle des 4 % (retrait sûr)
+  $: passiveMonthly = projected * SWR / 12; // règle des 4 % (retrait sûr)
   $: liberte = ready && state.salary > 0 ? Math.min(100, (passiveMonthly / state.salary) * 100) : 0;
+
+  // Durée réaliste pour atteindre l'objectif au rythme d'épargne actuel.
+  $: realMonths = ready && state.goal > 0 ? monthsToGoal(clean, state.goal, state.stepUp || 0) : 0;
+  $: chosenMonths = horizonYears * 12;
+  $: realYears = realMonths ? Math.ceil(realMonths / 12) : 0;
+  // « En retard » : objectif hors de portée dans l'horizon choisi au rythme actuel.
+  $: behind = ready && state.goal > 0 && totalMonthly > 0 && (realMonths === null || realMonths > chosenMonths + 2);
+  function adoptRealDuration() {
+    if (realMonths && realMonths !== null) state.targetYear = CURRENT_YEAR + Math.ceil(realMonths / 12);
+  }
 
   function durationLabel(m) {
     if (m === 0) return 'déjà atteint';
@@ -49,16 +71,22 @@
 {#if ready}
   <section class="panel goal-hero">
     <div class="gh-left">
-      <span class="k">Objectif patrimoine — {state.settings.objectiveLabel || 'Liberté financière'}</span>
+      <span class="k">Combien veux-tu toucher chaque mois grâce à tes placements ?</span>
       <div class="gh-input">
-        <input type="number" min="0" step="500000" bind:value={state.goal} placeholder="0" />
-        <span class="cur">FCFP</span>
+        <input type="number" min="0" step="50000" bind:value={state.passiveTarget} placeholder="0" />
+        <span class="cur">FCFP/mois</span>
+      </div>
+      <div class="gh-horizon">
+        <span class="muted">au bout de</span>
+        <input class="yr" type="number" min="1" max="60" value={horizonYears} on:input={(e) => setHorizon(e.target.value)} />
+        <span class="muted">ans</span>
+        {#if state.goal > 0}<span class="gh-cap">soit <strong>{fmtNum(state.goal)} FCFP</strong> de capital (règle des 4 %)</span>{/if}
       </div>
       {#if state.goal > 0}
         <div class="gh-bar"><div class="gh-fill" style="width:{progress}%"></div></div>
         <div class="gh-stat"><span class="num pct">{progress.toFixed(0)} %</span><span class="muted">de l'objectif atteint</span></div>
       {:else}
-        <p class="muted-text" style="margin-top:1rem">Définis un montant cible pour visualiser ta trajectoire et l'effort nécessaire.</p>
+        <p class="muted-text" style="margin-top:1rem">Indique le revenu mensuel visé — on en déduit le capital cible et l'effort nécessaire.</p>
       {/if}
     </div>
     {#if state.goal > 0}
@@ -76,6 +104,25 @@
       </div>
     {/if}
   </section>
+
+  {#if behind}
+    <section class="panel adjust">
+      <div class="adj-text">
+        <span class="k" style="margin:0 0 .35rem">Horizon trop court pour ce revenu</span>
+        <p>
+          À ton rythme actuel (<strong>{fmtNum(totalMonthly)} FCFP/mois</strong>),
+          {#if realMonths === null}
+            ce revenu n'est pas atteignable — augmente ton épargne ou vise un montant plus modeste.
+          {:else}
+            ce revenu serait atteint dans <strong>{realYears} ans</strong> plutôt qu'en {horizonYears} ans.
+          {/if}
+        </p>
+      </div>
+      {#if realMonths !== null}
+        <button class="btn" on:click={adoptRealDuration}>Caler l'échéance sur {realYears} ans</button>
+      {/if}
+    </section>
+  {/if}
 
   {#if state.goal > 0}
     <!-- Effort -->
@@ -150,6 +197,17 @@
   .gh-input { display: flex; align-items: baseline; gap: .5rem; border-bottom: 1px solid var(--line); padding-bottom: .6rem; max-width: 360px; }
   .gh-input input { background: transparent; border: none; outline: none; color: var(--ink); font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; font-family: inherit; width: 100%; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
   .gh-input .cur { color: var(--muted); font-size: 1rem; }
+  .gh-horizon { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; font-size: .9rem; }
+  .gh-horizon .muted { color: var(--muted); }
+  .gh-horizon .yr { width: 3.2rem; background: transparent; border: none; border-bottom: 1px solid var(--line); outline: none; color: var(--ink); font-family: inherit; font-size: 1.1rem; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; padding-bottom: .15rem; }
+  .gh-horizon .yr:focus { border-bottom-color: var(--accent); }
+  .gh-cap { color: var(--muted); margin-left: .3rem; }
+  .gh-cap strong { color: var(--ink); font-weight: 600; }
+
+  .adjust { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; margin-bottom: 1.1rem; border-color: rgba(201,168,93,.28); }
+  .adjust .adj-text p { margin: 0; font-size: .92rem; color: var(--muted); line-height: 1.55; }
+  .adjust .adj-text strong { color: var(--ink); font-weight: 600; }
+  .adjust .btn { flex-shrink: 0; }
   .gh-bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; margin: 1.4rem 0 .8rem; }
   .gh-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width .3s; }
   .gh-stat { display: flex; align-items: baseline; gap: .6rem; }
@@ -195,5 +253,6 @@
     .stats-row { grid-template-columns: 1fr 1fr; }
     .liberte { grid-template-columns: 1fr; gap: 1.6rem; }
     .lib-right { padding-left: 0; border-left: none; border-top: 1px solid var(--line); padding-top: 1.5rem; }
+    .adjust { flex-direction: column; align-items: flex-start; gap: 1rem; }
   }
 </style>
