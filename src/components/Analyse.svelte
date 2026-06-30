@@ -1,7 +1,10 @@
 <script>
   import { onMount } from 'svelte';
-  import { loadState, saveState, CURRENT_YEAR } from '../lib/store.js';
+  import { loadState, saveState, makePlacement, CURRENT_YEAR } from '../lib/store.js';
+  import { getPreset } from '../lib/presets.js';
   import { projectPortfolio, analyzePortfolio } from '../lib/finance.js';
+
+  const EQUITY = new Set(['sp500', 'msci-world', 'nasdaq100', 'stoxx600', 'emerging', 'world-acc']);
 
   const grouped = new Intl.NumberFormat('fr-FR');
   const fmtNum = (v) => grouped.format(Math.round(v || 0));
@@ -71,6 +74,58 @@
       aiLoading = false;
     }
   }
+
+  // --- Auto-correction des placements par l'IA ---
+  let fixLoading = false, fixError = '', fixProposal = null;
+
+  $: curTotalFinal = result ? result.perPlacement.reduce((s, r) => s + r.final.realistic, 0) || 1 : 1;
+  $: curAlloc = result
+    ? result.perPlacement.map((r) => ({
+        presetId: r.placement.presetId,
+        name: r.placement.name,
+        allocation: Math.round((r.final.realistic / curTotalFinal) * 100),
+        netReturn: (r.placement.meanReturn - r.placement.ter).toFixed(1),
+        volatility: r.placement.volatility,
+      }))
+    : [];
+  $: equityShare = curAlloc.filter((p) => EQUITY.has(p.presetId)).reduce((s, p) => s + p.allocation, 0);
+
+  async function fixPlacements() {
+    fixLoading = true; fixError = ''; fixProposal = null;
+    try {
+      const payload = {
+        apiKey: state.settings.apiKey,
+        placements: curAlloc,
+        note: a.note, diversif: a.diversif, risk: a.risk,
+        weightedVol: a.weightedVol.toFixed(0), equityShare,
+        salary: state.salary, totalMonthly, years, targetYear: state.targetYear,
+        finalRealistic: Math.round(result.totals.realistic[months] || 0),
+        goal: state.goal, inflation: state.inflation,
+      };
+      const res = await fetch('/api/improve-portfolio', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (Array.isArray(data.placements)) {
+        fixProposal = { summary: data.summary || '', placements: data.placements.map((p) => ({ ...p, ...getPreset(p.presetId) })) };
+      } else {
+        fixError = data.message || "La correction n'a pas pu être générée.";
+      }
+    } catch (e) {
+      fixError = "Impossible de contacter le serveur de correction.";
+    } finally {
+      fixLoading = false;
+    }
+  }
+
+  function applyFix() {
+    if (!fixProposal) return;
+    const totalMo = clean.reduce((s, p) => s + (+p.monthly || 0), 0);
+    const totalIn = clean.reduce((s, p) => s + (+p.initial || 0), 0);
+    state.placements = fixProposal.placements.map((p) =>
+      makePlacement(p.presetId, Math.round((totalMo * p.allocation) / 100), Math.round((totalIn * p.allocation) / 100)),
+    );
+    state = state; // déclenche la sauvegarde réactive
+    fixProposal = null;
+  }
 </script>
 
 {#if ready && a}
@@ -104,7 +159,12 @@
 
   <!-- Allocation -->
   <section class="panel">
-    <div class="panel-head"><h2>Allocation</h2></div>
+    <div class="panel-head">
+      <h2>Allocation</h2>
+      <button class="btn" on:click={fixPlacements} disabled={fixLoading || a.allocs.length === 0}>
+        {fixLoading ? 'Correction…' : 'Corriger mes placements'}
+      </button>
+    </div>
     <div class="alloc-wrap">
       <div class="donut-box">
         <svg class="donut" viewBox="0 0 110 110">
@@ -126,6 +186,33 @@
         {/each}
       </div>
     </div>
+
+    {#if fixError}
+      <p class="ai-error fix-error">{fixError} {#if fixError.includes('cle') || fixError.includes('clé')}<a class="inline-link" href="/parametres">Configurer la clé</a>{/if}</p>
+    {/if}
+
+    {#if fixProposal}
+      <div class="fix-box">
+        <div class="fix-head">
+          <span class="fix-tag">Correction proposée</span>
+        </div>
+        {#if fixProposal.summary}<p class="fix-summary">{fixProposal.summary}</p>{/if}
+        <div class="fix-list">
+          {#each fixProposal.placements as p}
+            <div class="fix-row">
+              <span class="alloc-name"><i class="adot" style="background:{p.color}"></i>{p.name}</span>
+              <div class="alloc-track"><div class="alloc-fill" style="width:{p.allocation}%;background:{p.color}"></div></div>
+              <span class="alloc-pct num">{p.allocation} %</span>
+              <span class="fix-why">{p.rationale}</span>
+            </div>
+          {/each}
+        </div>
+        <div class="fix-actions">
+          <button class="btn" on:click={() => (fixProposal = null)}>Annuler</button>
+          <button class="btn primary" on:click={applyFix}>Appliquer la correction</button>
+        </div>
+      </div>
+    {/if}
   </section>
 
   <!-- Rapport IA -->
@@ -149,7 +236,9 @@
 {/if}
 
 <style>
-  .score-panel { display: grid; grid-template-columns: 1fr 1px 1.2fr; gap: 2.5rem; align-items: center; margin-bottom: 1.1rem; }
+  section.panel { margin-bottom: 1.1rem; }
+  section.panel:last-child { margin-bottom: 0; }
+  .score-panel { display: grid; grid-template-columns: 1fr 1px 1.2fr; gap: 2.5rem; align-items: center; }
   .score-panel::before { content: ''; grid-column: 2; align-self: stretch; background: var(--line); }
   .k { display: block; font-size: .82rem; color: var(--muted); margin-bottom: .6rem; }
   .score-big { display: flex; align-items: baseline; gap: .3rem; }
@@ -179,6 +268,16 @@
   .alloc-pct { font-size: .9rem; font-weight: 600; min-width: 44px; text-align: right; }
   .alloc-val { font-size: .85rem; color: var(--muted); min-width: 130px; text-align: right; }
 
+  .fix-error { margin-top: 1.6rem; }
+  .fix-box { margin-top: 1.8rem; padding-top: 1.6rem; border-top: 1px solid var(--line); }
+  .fix-head { display: flex; align-items: center; margin-bottom: .8rem; }
+  .fix-tag { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #1a1405; background: var(--accent); padding: .2rem .55rem; border-radius: 999px; }
+  .fix-summary { font-size: .94rem; line-height: 1.65; color: #c8c8c8; margin: 0 0 1.2rem; }
+  .fix-list { display: flex; flex-direction: column; gap: 1rem; }
+  .fix-row { display: grid; grid-template-columns: 1.3fr 1.4fr auto 1.6fr; gap: 1.2rem; align-items: center; }
+  .fix-why { font-size: .82rem; color: var(--muted); }
+  .fix-actions { display: flex; justify-content: flex-end; gap: .7rem; margin-top: 1.6rem; }
+
   .ai-loading { display: flex; align-items: center; gap: .6rem; color: var(--muted); font-size: .9rem; }
   .spinner { width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -196,5 +295,7 @@
     .alloc-list { width: 100%; }
     .alloc-row { grid-template-columns: 1fr auto; }
     .alloc-track, .alloc-val { display: none; }
+    .fix-row { grid-template-columns: 1fr auto; }
+    .fix-row .alloc-track, .fix-why { display: none; }
   }
 </style>
