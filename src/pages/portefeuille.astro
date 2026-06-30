@@ -1,0 +1,8 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import Portfolio from '../components/Portfolio.svelte';
+---
+
+<Dashboard active="portfolio" title="Patrimoine" subtitle="Tes actifs, ta répartition et ton suivi.">
+  <Portfolio client:only="svelte" />
+</Dashboard>

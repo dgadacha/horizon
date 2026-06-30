@@ -1,0 +1,8 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import Analyse from '../components/Analyse.svelte';
+---
+
+<Dashboard active="analysis" title="Analyse" subtitle="La santé de ton patrimoine, en clair.">
+  <Analyse client:only="svelte" />
+</Dashboard>

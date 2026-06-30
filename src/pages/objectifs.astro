@@ -1,0 +1,8 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import Goals from '../components/Goals.svelte';
+---
+
+<Dashboard active="goals" title="Objectifs" subtitle="Ta cible et l'effort pour l'atteindre.">
+  <Goals client:only="svelte" />
+</Dashboard>

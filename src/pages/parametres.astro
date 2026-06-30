@@ -1,0 +1,8 @@
+---
+import Dashboard from '../layouts/Dashboard.astro';
+import Settings from '../components/Settings.svelte';
+---
+
+<Dashboard active="settings" title="Paramètres" subtitle="Profil, accès et hypothèses.">
+  <Settings client:only="svelte" />
+</Dashboard>

@@ -1,0 +1,20 @@
+{
+  "name": "horizon",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Horizon — dashboard de predictions patrimoniales multi-placements (ETF, fonds euro, etc.)",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@astrojs/node": "^8.3.4",
+    "@astrojs/svelte": "^5.7.3",
+    "astro": "^4.16.18",
+    "chart.js": "^4.4.7",
+    "svelte": "^4.2.19"
+  }
+}
